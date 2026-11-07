@@ -1,0 +1,5 @@
+Metric,Port,Value,Direction,Level,N,Baseline
+Flow Packets/s,80,10810.810810810812,high,0.9,50800,global
+Flow Duration,80,5051644.0,high,0.5,50834,global
+Flow Bytes/s,80,27.01215217655617,low,0.25,509,Flow Duration > p99
+Flow IAT Max,80,10216868.0,high,0.95,50834,global

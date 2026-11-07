@@ -1,0 +1,4 @@
+/data
+dashboard/triage.db
+__pycache__/
+*.pyc
