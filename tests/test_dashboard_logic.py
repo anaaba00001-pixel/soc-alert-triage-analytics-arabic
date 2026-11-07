@@ -2,11 +2,11 @@ import io
 
 import pandas as pd
 
-from dashboard.app import make_cases, safe_export_csv, sort_cases
+from dashboard.app import classify_outcome, make_cases, safe_export_csv, sort_cases, stable_case_id
 
 
 def event(time, alert_type="محاولة دخول فاشلة", outcome="failure", severity="منخفضة",
-          source="203.0.113.10", target="vpn.local", account="analyst"):
+          source="203.0.113.10", target="vpn.local", account="analyst", rule="login_rule"):
     return {
         "alert_time": pd.Timestamp(time, tz="Asia/Riyadh"),
         "alert_type": alert_type,
@@ -14,7 +14,7 @@ def event(time, alert_type="محاولة دخول فاشلة", outcome="failure"
         "target": target,
         "target_account": account,
         "severity": severity,
-        "detection_rule": "login_rule",
+        "detection_rule": rule,
         "event_outcome": outcome,
     }
 
@@ -88,3 +88,38 @@ def test_csv_export_neutralizes_spreadsheet_formulas():
     assert exported.loc[0, "source_ip"].startswith("'+")
     assert exported.loc[0, "target"].startswith("'")
     assert exported.loc[0, "reason"].startswith("'-")
+
+
+def test_non_login_alerts_are_not_merged_or_given_login_context():
+    cases = cases_for([
+        event("2026-11-07 09:00", "فشل استعلام DNS", "failure", rule="dns_rule"),
+        event("2026-11-07 09:01", "نجاح رفع ملف", "success", rule="upload_rule"),
+    ])
+    assert len(cases) == 2
+    assert not cases["reason"].str.contains("نجاح دخول بعد فشل").any()
+
+
+def test_explicit_outcome_wins_over_misleading_description():
+    row = pd.Series({"alert_type": "Unsuccessful login", "event_outcome": "failure"})
+    assert classify_outcome(row) == "failure"
+
+
+def test_login_success_is_not_linked_without_a_known_account():
+    case = cases_for([
+        event("2026-11-07 09:00", "محاولة دخول فاشلة", "failure", account=""),
+        event("2026-11-07 09:01", "تسجيل دخول ناجح", "success", account=""),
+    ]).iloc[0]
+    assert case["priority_level"] == 1
+    assert "نجاح دخول بعد فشل" not in case["reason"]
+
+
+def test_demo_case_id_remains_compatible_with_saved_investigations():
+    row = {
+        "alert_type": "محاولات دخول متكررة", "source_ip": "192.0.2.1", "target": "vpn.local",
+        "detection_rule": "brute_force_rate", "severity": "متوسطة", "priority_score": 1.0,
+        "magnitude": 2.0,
+    }
+    case = make_cases(pd.DataFrame([row]), "demo", "built-in-demo-v1")[0].iloc[0]
+    old_key = (row["alert_type"], row["source_ip"], row["target"], row["detection_rule"], row["severity"])
+    assert case["case_id"] == "demo-" + stable_case_id(old_key)
+    assert case["previous_case_id"] == "demo-" + stable_case_id(("built-in-demo-v1",) + old_key)

@@ -176,15 +176,41 @@ def fixed_five_minute_windows(times: pd.Series) -> pd.Series:
     return pd.Series(window_ids, index=times.index)
 
 
-def outcome_mask(group: pd.DataFrame, outcomes: set[str], type_words: tuple[str, ...]) -> pd.Series:
-    normalized = group["event_outcome"].fillna("").astype(str).str.strip().str.lower()
-    typed = group["alert_type"].fillna("").astype(str).str.lower()
-    return normalized.isin(outcomes) | typed.apply(lambda value: any(word in value for word in type_words))
+LOGIN_WORDS = ("login", "logon", "sign-in", "sign in", "تسجيل دخول", "محاولة دخول")
+FAILURE_OUTCOMES = {"failure", "failed", "fail", "فشل", "فاشل"}
+SUCCESS_OUTCOMES = {"success", "successful", "succeeded", "نجاح", "ناجح"}
+
+
+def is_login_event(row: pd.Series) -> bool:
+    text = f"{row.get('alert_type', '')} {row.get('detection_rule', '')}".lower()
+    return any(word in text for word in LOGIN_WORDS)
+
+
+def classify_outcome(row: pd.Series) -> str:
+    """Prefer the explicit outcome; infer from the alert type only when it is blank."""
+    explicit = str(row.get("event_outcome", "") or "").strip().lower()
+    if explicit:
+        if explicit in FAILURE_OUTCOMES:
+            return "failure"
+        if explicit in SUCCESS_OUTCOMES:
+            return "success"
+        return "other"
+
+    description = str(row.get("alert_type", "") or "").strip().lower()
+    # Failure must be checked first because "unsuccessful" contains "successful".
+    if any(word in description for word in ("unsuccessful", "failed", "failure", "فاشل", "فشل")):
+        return "failure"
+    if any(word in description for word in ("successful", "succeeded", "success", "ناجح", "نجاح")):
+        return "success"
+    return "other"
 
 
 def has_failure_then_success(group: pd.DataFrame) -> bool:
-    failures = outcome_mask(group, {"failure", "failed", "فشل", "فاشل"}, ("فاشل", "فشل", "failed"))
-    successes = outcome_mask(group, {"success", "successful", "نجاح", "ناجح"}, ("ناجح", "نجاح", "success"))
+    if not str(group["target_account"].iloc[0]).strip() or not group.apply(is_login_event, axis=1).all():
+        return False
+    outcomes = group.apply(classify_outcome, axis=1)
+    failures = outcomes.eq("failure")
+    successes = outcomes.eq("success")
     if not failures.any() or not successes.any():
         return False
     return group.loc[successes, "alert_time"].max() > group.loc[failures, "alert_time"].min()
@@ -219,7 +245,10 @@ def make_cases(events: pd.DataFrame, source: str, dataset_id: str = "demo") -> t
             first = group.iloc[0]
             score = float(group["priority_score"].max())
             level = 4 if score >= 2.5 else 3 if score >= 2 else 2 if score >= 1 else 1
-            case_id = "demo-" + stable_case_id((dataset_id,) + tuple(key))
+            # Preserve the identifier used before upload isolation so existing
+            # SQLite investigations for the built-in demo become visible again.
+            case_id = "demo-" + stable_case_id(tuple(key))
+            previous_case_id = "demo-" + stable_case_id((dataset_id,) + tuple(key))
             reason = (
                 f"{PRIORITY_LABELS[level]} وفق ترتيب المشروع الأصلي: وزن القاعدة × دقتها = {score:.3f}، "
                 f"وأعلى مقدار تجاوز للعتبة {group['magnitude'].max():.2f}."
@@ -233,13 +262,18 @@ def make_cases(events: pd.DataFrame, source: str, dataset_id: str = "demo") -> t
                          "target": first["target"], "target_account": "", "severity": first["severity"],
                          "priority_level": level, "priority": PRIORITY_LABELS[level], "reason": reason,
                          "event_count": event_count, "detection_rule": first["detection_rule"],
-                         "source": source})
+                         "previous_case_id": previous_case_id, "source": source})
     else:
         # Exact duplicate rows are one event. Separate attempts are preserved as evidence.
         data = data.drop_duplicates(subset=ALL_COLUMNS).sort_values("alert_time")
-        # Alert type and rule are deliberately not identity keys: a failed login and its
-        # later successful login must share a case when source, target and account match.
-        group_columns = ["source_ip", "target", "target_account"]
+        # Login variants share a family. Other alert types remain separate even if
+        # source, target and account happen to match.
+        data["_event_family"] = data.apply(
+            lambda row: "__login__" if is_login_event(row)
+            else f"{row['alert_type']}|{row['detection_rule']}",
+            axis=1,
+        )
+        group_columns = ["source_ip", "target", "target_account", "_event_family"]
         for key, related in data.groupby(group_columns, dropna=False, sort=False):
             related = related.sort_values("alert_time").copy()
             window = fixed_five_minute_windows(related["alert_time"])
@@ -250,7 +284,10 @@ def make_cases(events: pd.DataFrame, source: str, dataset_id: str = "demo") -> t
                 success_after_failure = has_failure_then_success(group)
                 context_bonus = 1 if success_after_failure else 0
                 level = min(4, max(1, severity_value + burst_bonus + context_bonus))
-                case_parts = (dataset_id,) + tuple(key) + (group["alert_time"].min().isoformat(),)
+                identity_key = tuple(key[:3])
+                case_parts = (dataset_id,) + identity_key + (group["alert_time"].min().isoformat(),)
+                if key[3] != "__login__":
+                    case_parts += (key[3],)
                 case_id = "csv-" + stable_case_id(case_parts)
                 account_text = f" إلى الحساب {key[2]}" if key[2] else ""
                 alert_types = " / ".join(dict.fromkeys(group["alert_type"].astype(str)))
@@ -263,14 +300,14 @@ def make_cases(events: pd.DataFrame, source: str, dataset_id: str = "demo") -> t
                 )
                 if success_after_failure:
                     reason += " رُصد نجاح دخول بعد فشل للمصدر والهدف والحساب أنفسهم."
-                evidence[case_id] = group.copy()
+                evidence[case_id] = group.drop(columns="_event_family").copy()
                 rows.append({"case_id": case_id, "first_time": group["alert_time"].min(),
                              "last_time": group["alert_time"].max(), "alert_type": alert_types,
                              "source_ip": key[0], "target": key[1], "target_account": key[2],
                              "severity": severity_label, "priority_level": level,
                              "priority": PRIORITY_LABELS[level], "reason": reason, "event_count": count,
                              "detection_rule": detection_rules,
-                             "source": source})
+                             "previous_case_id": "", "source": source})
     cases = sort_cases(pd.DataFrame(rows))
     return cases.reset_index(drop=True), evidence
 
@@ -278,8 +315,14 @@ def make_cases(events: pd.DataFrame, source: str, dataset_id: str = "demo") -> t
 def attach_investigations(cases: pd.DataFrame) -> pd.DataFrame:
     if cases.empty:
         return cases
-    investigations = load_investigations()
-    merged = cases.merge(investigations, on="case_id", how="left")
+    investigations = load_investigations().set_index("case_id")
+    merged = cases.copy()
+    investigation_columns = ["status", "verdict", "notes", "updated_at"]
+    for column in investigation_columns:
+        merged[column] = merged["case_id"].map(investigations[column])
+        if "previous_case_id" in merged:
+            fallback = merged["previous_case_id"].map(investigations[column])
+            merged[column] = merged[column].fillna(fallback)
     merged["status"] = merged["status"].fillna("جديدة")
     merged["verdict"] = merged["verdict"].fillna("غير محددة")
     merged["notes"] = merged["notes"].fillna("")
