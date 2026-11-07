@@ -163,7 +163,49 @@ def stable_case_id(parts: tuple) -> str:
     return hashlib.sha1(value.encode("utf-8")).hexdigest()[:12]
 
 
-def make_cases(events: pd.DataFrame, source: str) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+def fixed_five_minute_windows(times: pd.Series) -> pd.Series:
+    """Assign windows whose duration is measured from the first event."""
+    window_ids: list[int] = []
+    window_id = 0
+    window_start = None
+    for event_time in times:
+        if window_start is None or event_time - window_start > pd.Timedelta(minutes=5):
+            window_id += 1
+            window_start = event_time
+        window_ids.append(window_id)
+    return pd.Series(window_ids, index=times.index)
+
+
+def outcome_mask(group: pd.DataFrame, outcomes: set[str], type_words: tuple[str, ...]) -> pd.Series:
+    normalized = group["event_outcome"].fillna("").astype(str).str.strip().str.lower()
+    typed = group["alert_type"].fillna("").astype(str).str.lower()
+    return normalized.isin(outcomes) | typed.apply(lambda value: any(word in value for word in type_words))
+
+
+def has_failure_then_success(group: pd.DataFrame) -> bool:
+    failures = outcome_mask(group, {"failure", "failed", "فشل", "فاشل"}, ("فاشل", "فشل", "failed"))
+    successes = outcome_mask(group, {"success", "successful", "نجاح", "ناجح"}, ("ناجح", "نجاح", "success"))
+    if not failures.any() or not successes.any():
+        return False
+    return group.loc[successes, "alert_time"].max() > group.loc[failures, "alert_time"].min()
+
+
+def highest_severity(group: pd.DataFrame) -> tuple[str, int]:
+    scores = group["severity"].map(SEVERITY_SCORE).fillna(SEVERITY_SCORE["متوسطة"])
+    score = int(scores.max())
+    label = next(label for label, value in SEVERITY_SCORE.items() if value == score)
+    return label, score
+
+
+def sort_cases(cases: pd.DataFrame) -> pd.DataFrame:
+    return cases.sort_values(
+        ["priority_level", "event_count", "last_time"],
+        ascending=[False, False, False],
+        na_position="last",
+    )
+
+
+def make_cases(events: pd.DataFrame, source: str, dataset_id: str = "demo") -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     if events.empty:
         return pd.DataFrame(), {}
     data = events.copy()
@@ -177,7 +219,7 @@ def make_cases(events: pd.DataFrame, source: str) -> tuple[pd.DataFrame, dict[st
             first = group.iloc[0]
             score = float(group["priority_score"].max())
             level = 4 if score >= 2.5 else 3 if score >= 2 else 2 if score >= 1 else 1
-            case_id = "demo-" + stable_case_id(tuple(key))
+            case_id = "demo-" + stable_case_id((dataset_id,) + tuple(key))
             reason = (
                 f"{PRIORITY_LABELS[level]} وفق ترتيب المشروع الأصلي: وزن القاعدة × دقتها = {score:.3f}، "
                 f"وأعلى مقدار تجاوز للعتبة {group['magnitude'].max():.2f}."
@@ -191,39 +233,45 @@ def make_cases(events: pd.DataFrame, source: str) -> tuple[pd.DataFrame, dict[st
                          "target": first["target"], "target_account": "", "severity": first["severity"],
                          "priority_level": level, "priority": PRIORITY_LABELS[level], "reason": reason,
                          "event_count": event_count, "detection_rule": first["detection_rule"],
-                         "sort_score": score, "source": source})
+                         "source": source})
     else:
         # Exact duplicate rows are one event. Separate attempts are preserved as evidence.
         data = data.drop_duplicates(subset=ALL_COLUMNS).sort_values("alert_time")
-        group_columns = ["alert_type", "source_ip", "target", "target_account", "detection_rule"]
+        # Alert type and rule are deliberately not identity keys: a failed login and its
+        # later successful login must share a case when source, target and account match.
+        group_columns = ["source_ip", "target", "target_account"]
         for key, related in data.groupby(group_columns, dropna=False, sort=False):
             related = related.sort_values("alert_time").copy()
-            window = related["alert_time"].diff().gt(pd.Timedelta(minutes=5)).cumsum()
+            window = fixed_five_minute_windows(related["alert_time"])
             for _, group in related.groupby(window):
-                severity_value = int(group["severity"].map(SEVERITY_SCORE).max())
+                severity_label, severity_value = highest_severity(group)
                 count = len(group)
                 burst_bonus = 2 if count >= 10 else 1 if count >= 3 else 0
-                success_after = group["event_outcome"].str.lower().isin(["success", "successful", "نجاح", "ناجح"]).any()
-                context_bonus = 1 if success_after and "دخول" in str(key[0]) else 0
+                success_after_failure = has_failure_then_success(group)
+                context_bonus = 1 if success_after_failure else 0
                 level = min(4, max(1, severity_value + burst_bonus + context_bonus))
-                case_parts = tuple(key) + (group["alert_time"].min().floor("5min"),)
+                case_parts = (dataset_id,) + tuple(key) + (group["alert_time"].min().isoformat(),)
                 case_id = "csv-" + stable_case_id(case_parts)
-                account_text = f" إلى الحساب {key[3]}" if key[3] else ""
+                account_text = f" إلى الحساب {key[2]}" if key[2] else ""
+                alert_types = " / ".join(dict.fromkeys(group["alert_type"].astype(str)))
+                detection_rules = " / ".join(filter(None, dict.fromkeys(group["detection_rule"].astype(str)))) or "غير محددة"
+                duration = group["alert_time"].max() - group["alert_time"].min()
+                duration_minutes = duration.total_seconds() / 60
                 reason = (
-                    f"أولوية {PRIORITY_LABELS[level]} بسبب {count} حدث/أحداث من المصدر {key[1]}"
-                    f" إلى {key[2]}{account_text} خلال خمس دقائق؛ الخطورة {group['severity'].iloc[0]}."
+                    f"أولوية {PRIORITY_LABELS[level]} بسبب {count} حدث/أحداث من المصدر {key[0]}"
+                    f" إلى {key[1]}{account_text} خلال {duration_minutes:.1f} دقيقة؛ الخطورة الأعلى {severity_label}."
                 )
-                if success_after:
-                    reason += " يتضمن التسلسل نتيجة ناجحة تستحق المراجعة."
+                if success_after_failure:
+                    reason += " رُصد نجاح دخول بعد فشل للمصدر والهدف والحساب أنفسهم."
                 evidence[case_id] = group.copy()
                 rows.append({"case_id": case_id, "first_time": group["alert_time"].min(),
-                             "last_time": group["alert_time"].max(), "alert_type": key[0],
-                             "source_ip": key[1], "target": key[2], "target_account": key[3],
-                             "severity": group["severity"].iloc[0], "priority_level": level,
+                             "last_time": group["alert_time"].max(), "alert_type": alert_types,
+                             "source_ip": key[0], "target": key[1], "target_account": key[2],
+                             "severity": severity_label, "priority_level": level,
                              "priority": PRIORITY_LABELS[level], "reason": reason, "event_count": count,
-                             "detection_rule": key[4] or "غير محددة", "sort_score": level * 100 + count,
+                             "detection_rule": detection_rules,
                              "source": source})
-    cases = pd.DataFrame(rows).sort_values(["sort_score", "last_time"], ascending=[False, False], na_position="last")
+    cases = sort_cases(pd.DataFrame(rows))
     return cases.reset_index(drop=True), evidence
 
 
@@ -298,8 +346,9 @@ def filter_cases(cases: pd.DataFrame) -> pd.DataFrame:
             dates = result["last_time"].dt.date
             result = result[(dates >= date_range[0]) & (dates <= date_range[1])]
     order = st.sidebar.radio("الترتيب", ["الأولوية", "الأحدث"])
-    sort_column = "sort_score" if order == "الأولوية" else "last_time"
-    return result.sort_values(sort_column, ascending=False, na_position="last")
+    if order == "الأولوية":
+        return sort_cases(result)
+    return result.sort_values("last_time", ascending=False, na_position="last")
 
 
 def overview(cases: pd.DataFrame, evidence: dict[str, pd.DataFrame]) -> None:
@@ -324,15 +373,32 @@ def overview(cases: pd.DataFrame, evidence: dict[str, pd.DataFrame]) -> None:
         st.bar_chart(cases["alert_type"].value_counts().rename("عدد الحالات"), horizontal=True)
 
 
+def sanitize_spreadsheet_value(value):
+    """Prevent untrusted CSV text from being interpreted as a spreadsheet formula."""
+    if not isinstance(value, str):
+        return value
+    if value.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
+
+
+def safe_export_csv(cases: pd.DataFrame) -> bytes:
+    export_columns = ["case_id", "first_time", "last_time", "alert_type", "source_ip", "target",
+                      "target_account", "severity", "priority", "reason", "event_count",
+                      "detection_rule", "status", "verdict", "notes"]
+    export = cases[export_columns].copy()
+    for column in export.select_dtypes(include=["object", "string"]).columns:
+        export[column] = export[column].map(sanitize_spreadsheet_value)
+    return export.to_csv(index=False).encode("utf-8-sig")
+
+
 def alerts_table(cases: pd.DataFrame) -> None:
     st.subheader("قائمة التنبيهات والحالات")
     table = cases[["last_time", "alert_type", "source_ip", "target", "severity", "priority", "status", "event_count", "case_id"]].copy()
     table.columns = ["الوقت", "نوع التنبيه", "عنوان المصدر", "الهدف", "الخطورة", "أولوية المراجعة", "حالة التحقيق", "عدد الأحداث", "معرّف الحالة"]
     st.caption(f"يعرض الجدول {len(table):,} حالة. الترتيب الافتراضي يبدأ بالأولوية الأعلى.")
     st.dataframe(table, use_container_width=True, hide_index=True)
-    export = cases[["case_id", "first_time", "last_time", "alert_type", "source_ip", "target", "target_account",
-                    "severity", "priority", "reason", "event_count", "detection_rule", "status", "verdict", "notes"]]
-    st.download_button("⬇️ تصدير النتائج", export.to_csv(index=False).encode("utf-8-sig"),
+    st.download_button("⬇️ تصدير النتائج", safe_export_csv(cases),
                        "triage_cases.csv", "text/csv", use_container_width=True)
 
 
@@ -359,6 +425,12 @@ def case_details(cases: pd.DataFrame, evidence: dict[str, pd.DataFrame]) -> None
                 unsafe_allow_html=True)
     with st.expander("الخط الزمني والسجلات التي بُنيت عليها الحالة", expanded=True):
         raw = evidence.get(selected_id, pd.DataFrame()).copy()
+        shown_count = len(raw)
+        total_count = int(case["event_count"])
+        if shown_count < total_count:
+            st.warning(f"تعرض التفاصيل أول {shown_count:,} سجلًا من أصل {total_count:,} سجلًا في هذه الحالة.")
+        else:
+            st.caption(f"تعرض التفاصيل جميع السجلات وعددها {shown_count:,}.")
         if "alert_time" in raw and raw["alert_time"].notna().any():
             timeline = raw[["alert_time", "alert_type", "source_ip", "target", "target_account", "event_outcome", "severity"]]
             st.dataframe(timeline.sort_values("alert_time"), use_container_width=True, hide_index=True)
@@ -428,7 +500,8 @@ def main() -> None:
         events = load_demo_queue()
         st.caption("مصدر البيانات الحالي: بيانات المشروع الأصلية المرتبة.")
 
-    cases, evidence = make_cases(events, source)
+    dataset_id = "built-in-demo-v1" if source == "demo" else st.session_state.get("upload_id", "unknown-upload")
+    cases, evidence = make_cases(events, source, dataset_id)
     cases = attach_investigations(cases)
     filtered = filter_cases(cases)
     section = st.sidebar.radio("القسم", ["نظرة عامة", "قائمة التنبيهات", "تفاصيل الحالة", "أداء قواعد الكشف"])
