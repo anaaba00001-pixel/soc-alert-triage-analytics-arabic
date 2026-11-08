@@ -6,6 +6,7 @@ Run from the repository root with: streamlit run dashboard/app.py
 from __future__ import annotations
 
 import hashlib
+import html
 import io
 import sqlite3
 from pathlib import Path
@@ -48,6 +49,7 @@ st.markdown(
     [data-testid="stSidebar"] > div:first-child { padding-top:1.25rem; }
     [data-testid="stSidebar"] [role="radiogroup"] label { padding:.6rem .8rem; border-radius:10px; transition:.2s ease; }
     [data-testid="stSidebar"] [role="radiogroup"] label:hover { background:rgba(45,212,191,.08); }
+    [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) { color:var(--teal); background:rgba(45,212,191,.13); box-shadow:inset -3px 0 0 var(--teal); }
     [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color:#CBD5E1; }
     [data-testid="stDataFrame"] { direction:ltr; border:1px solid var(--line); border-radius:14px; overflow:hidden; }
     div[data-testid="stMetric"] { background:linear-gradient(145deg,rgba(21,29,51,.98),rgba(21,29,51,.78)); border:1px solid var(--line); padding:1rem 1.15rem; border-radius:16px; box-shadow:0 14px 35px rgba(0,0,0,.15); }
@@ -64,6 +66,10 @@ st.markdown(
     .shield { width:42px; height:42px; display:grid; place-items:center; border-radius:13px; color:#07111D; background:linear-gradient(135deg,var(--teal),var(--violet)); box-shadow:0 0 24px rgba(45,212,191,.2); font-size:1.3rem; }
     .side-brand strong { display:block; color:#F8FAFC; } .side-brand small { color:var(--muted); }
     .section-title { margin-top:.35rem; color:#F8FAFC; font-size:1.15rem; font-weight:700; }
+    .case-panel { border:1px solid var(--line); border-radius:16px; padding:1rem; background:linear-gradient(150deg,rgba(21,29,51,.96),rgba(11,16,32,.92)); }
+    .case-panel .priority { color:#FB923C; font-size:.78rem; font-weight:700; }
+    .case-panel h3 { margin:.2rem 0 .55rem; }
+    .case-panel p { color:#CBD5E1; line-height:1.75; }
     code, .ltr { direction:ltr; unicode-bidi:embed; display:inline-block; }
     h1,h2,h3,h4 { color:#F8FAFC; }
     [data-testid="stAlert"] { border-radius:12px; border-color:var(--line); }
@@ -375,10 +381,13 @@ def show_upload() -> tuple[pd.DataFrame | None, str]:
         st.warning("لا توجد صفوف صالحة للتحليل.")
         return None, "demo"
     if st.button("تحليل الصفوف المقبولة", type="primary", use_container_width=True):
-        with st.spinner("جارٍ التحقق من الحقول وتجميع التنبيهات وحساب الأولوية…"):
-            st.session_state["uploaded_events"] = valid
-            st.session_state["upload_id"] = fingerprint
-            st.session_state["data_source"] = "upload"
+        progress = st.progress(20, text="التحقق من الحقول وجودة البيانات…")
+        progress.progress(55, text="تجميع الأحداث في حالات مترابطة…")
+        st.session_state["uploaded_events"] = valid
+        st.session_state["upload_id"] = fingerprint
+        progress.progress(85, text="حساب الأولوية وتجهيز قائمة المراجعة…")
+        st.session_state["data_source"] = "upload"
+        progress.progress(100, text="اكتمل التحليل بنجاح")
         st.rerun()
     return None, "demo"
 
@@ -457,7 +466,45 @@ def safe_export_csv(cases: pd.DataFrame) -> bytes:
     return export.to_csv(index=False).encode("utf-8-sig")
 
 
-def alerts_table(cases: pd.DataFrame) -> None:
+def compact_case_panel(case: pd.Series, evidence: dict[str, pd.DataFrame]) -> None:
+    """Render investigation details beside the selected alert row."""
+    priority_color = {"عاجلة": "#FB7185", "عالية": "#FB923C", "متوسطة": "#FACC15", "منخفضة": "#2DD4BF"}.get(case["priority"], "#2DD4BF")
+    priority = html.escape(str(case["priority"]))
+    alert_type = html.escape(str(case["alert_type"]))
+    reason = html.escape(str(case["reason"]))
+    source_ip = html.escape(str(case["source_ip"]))
+    target = html.escape(str(case["target"]))
+    account = html.escape(str(case["target_account"] or "—"))
+    st.markdown(
+        f'<div class="case-panel"><div class="priority" style="color:{priority_color}">● {priority}</div>'
+        f'<h3>{alert_type}</h3><p><strong>سبب الأولوية</strong><br>{reason}</p>'
+        f'<p><strong>المصدر</strong> <span class="ltr">{source_ip}</span><br>'
+        f'<strong>الهدف</strong> <span class="ltr">{target}</span><br>'
+        f'<strong>الحساب</strong> <span class="ltr">{account}</span></p></div>',
+        unsafe_allow_html=True,
+    )
+    raw = evidence.get(case["case_id"], pd.DataFrame()).copy()
+    with st.expander(f"التسلسل الزمني · {len(raw):,} حدث", expanded=True):
+        if "alert_time" in raw and raw["alert_time"].notna().any():
+            timeline_columns = ["alert_time", "alert_type", "source_ip", "target", "event_outcome"]
+            st.dataframe(raw[timeline_columns].sort_values("alert_time"), hide_index=True, use_container_width=True, height=220)
+        elif not raw.empty:
+            st.dataframe(raw.head(20), hide_index=True, use_container_width=True, height=220)
+        else:
+            st.caption("لا توجد أحداث تفصيلية لهذه الحالة.")
+    with st.form(f"quick-investigation-{case['case_id']}"):
+        status_index = STATUS_OPTIONS.index(case["status"]) if case["status"] in STATUS_OPTIONS else 0
+        verdict_index = VERDICT_OPTIONS.index(case["verdict"]) if case["verdict"] in VERDICT_OPTIONS else 0
+        status = st.selectbox("حالة التحقيق", STATUS_OPTIONS, index=status_index)
+        verdict = st.selectbox("نتيجة المراجعة", VERDICT_OPTIONS, index=verdict_index)
+        notes = st.text_area("الملاحظات", value=case["notes"], height=105)
+        if st.form_submit_button("حفظ التحقيق", type="primary", use_container_width=True):
+            save_investigation(case["case_id"], status, verdict, notes)
+            st.success("حُفظ التحقيق.")
+            st.rerun()
+
+
+def alerts_table(cases: pd.DataFrame, evidence: dict[str, pd.DataFrame]) -> None:
     st.subheader("قائمة التنبيهات والحالات")
     table = cases[["last_time", "alert_type", "source_ip", "target", "severity", "priority", "status", "event_count", "case_id"]].copy()
     table.columns = ["الوقت", "نوع التنبيه", "عنوان المصدر", "الهدف", "الخطورة", "أولوية المراجعة", "حالة التحقيق", "عدد الأحداث", "معرّف الحالة"]
@@ -468,9 +515,20 @@ def alerts_table(cases: pd.DataFrame) -> None:
         color = priority_colors.get(str(value), status_colors.get(str(value)))
         return f"color:{color};font-weight:700" if color else ""
     styled = table.style.applymap(color_badges, subset=["أولوية المراجعة", "حالة التحقيق"])
-    st.dataframe(styled, use_container_width=True, hide_index=True, height=520)
-    st.download_button("⬇️ تصدير النتائج", safe_export_csv(cases),
-                       "triage_cases.csv", "text/csv", use_container_width=True)
+    table_area, details_area = st.columns([2.15, 1], gap="large")
+    with table_area:
+        selection = st.dataframe(
+            styled, use_container_width=True, hide_index=True, height=560,
+            on_select="rerun", selection_mode="single-row", key="alerts-table",
+        )
+        st.download_button("⬇️ تصدير النتائج", safe_export_csv(cases),
+                           "triage_cases.csv", "text/csv", use_container_width=True)
+    with details_area:
+        selected_rows = selection.selection.rows
+        if selected_rows:
+            compact_case_panel(cases.reset_index(drop=True).iloc[selected_rows[0]], evidence)
+        else:
+            st.info("اختاري صفًا من جدول التنبيهات لعرض تفاصيل الحالة وبدء التحقيق.")
 
 
 def case_details(cases: pd.DataFrame, evidence: dict[str, pd.DataFrame]) -> None:
@@ -587,7 +645,7 @@ def main() -> None:
     if section == "نظرة عامة":
         overview(filtered, evidence)
     elif section == "التنبيهات":
-        alerts_table(filtered)
+        alerts_table(filtered, evidence)
     elif section == "التحقيقات":
         case_details(filtered, evidence)
     else:
