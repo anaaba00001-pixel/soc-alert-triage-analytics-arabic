@@ -35,20 +35,39 @@ ARABIC_RULES = {
 }
 
 
-st.set_page_config(page_title="تحليل وفرز تنبيهات SOC", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="مركز مراقبة التنبيهات", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
 st.markdown(
     """
     <style>
-    html, body, [class*="css"], .stApp { direction: rtl; text-align: right; }
-    [data-testid="stSidebar"] { direction: rtl; }
-    [data-testid="stDataFrame"] { direction: ltr; }
-    .main .block-container { max-width: 1450px; padding-top: 1.5rem; }
-    .priority-urgent { color:#ff4b4b; font-weight:800; }
-    .priority-high { color:#ff9f43; font-weight:800; }
-    .priority-medium { color:#feca57; font-weight:800; }
-    .priority-low { color:#48dbfb; font-weight:800; }
-    .hint { color:#aab2c0; font-size:.9rem; }
-    div[data-testid="stMetric"] { background:#151b26; border:1px solid #293244; padding:15px; border-radius:12px; }
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+    :root { --bg:#0B1020; --card:#151D33; --line:#273552; --teal:#2DD4BF; --violet:#8B5CF6; --muted:#94A3B8; }
+    html, body, [class*="css"], .stApp { direction:rtl; text-align:right; font-family:'IBM Plex Sans Arabic',sans-serif; }
+    .stApp { background:radial-gradient(circle at 82% 4%,rgba(139,92,246,.12),transparent 28%),var(--bg); }
+    .main .block-container { max-width:1500px; padding:2rem 2.4rem 4rem; }
+    [data-testid="stSidebar"] { direction:rtl; right:0; left:auto; background:linear-gradient(180deg,#10172A 0%,#0B1020 100%); border-left:1px solid var(--line); }
+    [data-testid="stSidebar"] > div:first-child { padding-top:1.25rem; }
+    [data-testid="stSidebar"] [role="radiogroup"] label { padding:.6rem .8rem; border-radius:10px; transition:.2s ease; }
+    [data-testid="stSidebar"] [role="radiogroup"] label:hover { background:rgba(45,212,191,.08); }
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color:#CBD5E1; }
+    [data-testid="stDataFrame"] { direction:ltr; border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+    div[data-testid="stMetric"] { background:linear-gradient(145deg,rgba(21,29,51,.98),rgba(21,29,51,.78)); border:1px solid var(--line); padding:1rem 1.15rem; border-radius:16px; box-shadow:0 14px 35px rgba(0,0,0,.15); }
+    div[data-testid="stMetric"] label { color:var(--muted); }
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] { color:#F8FAFC; font-weight:700; }
+    div[data-testid="stVerticalBlockBorderWrapper"] { background:rgba(21,29,51,.72); border-color:var(--line)!important; border-radius:16px; }
+    .stButton button, .stDownloadButton button, [data-testid="stFormSubmitButton"] button { border-radius:10px; border-color:rgba(45,212,191,.48); transition:transform .18s ease,box-shadow .18s ease; }
+    .stButton button:hover, .stDownloadButton button:hover, [data-testid="stFormSubmitButton"] button:hover { transform:translateY(-1px); box-shadow:0 0 22px rgba(45,212,191,.22); border-color:var(--teal); }
+    .hero { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.25rem; }
+    .hero h1 { margin:0; font-size:2rem; letter-spacing:-.02em; }
+    .hero p { margin:.35rem 0 0; color:var(--muted); }
+    .eyebrow { color:var(--teal); font-size:.78rem; font-weight:700; letter-spacing:.08em; }
+    .side-brand { display:flex; gap:.75rem; align-items:center; padding:.8rem .55rem 1.25rem; border-bottom:1px solid var(--line); margin-bottom:1rem; }
+    .shield { width:42px; height:42px; display:grid; place-items:center; border-radius:13px; color:#07111D; background:linear-gradient(135deg,var(--teal),var(--violet)); box-shadow:0 0 24px rgba(45,212,191,.2); font-size:1.3rem; }
+    .side-brand strong { display:block; color:#F8FAFC; } .side-brand small { color:var(--muted); }
+    .section-title { margin-top:.35rem; color:#F8FAFC; font-size:1.15rem; font-weight:700; }
+    code, .ltr { direction:ltr; unicode-bidi:embed; display:inline-block; }
+    h1,h2,h3,h4 { color:#F8FAFC; }
+    [data-testid="stAlert"] { border-radius:12px; border-color:var(--line); }
+    @media(max-width:900px){ .main .block-container{padding:1.2rem}.hero{align-items:flex-start}.hero h1{font-size:1.55rem} }
     </style>
     """,
     unsafe_allow_html=True,
@@ -356,9 +375,10 @@ def show_upload() -> tuple[pd.DataFrame | None, str]:
         st.warning("لا توجد صفوف صالحة للتحليل.")
         return None, "demo"
     if st.button("تحليل الصفوف المقبولة", type="primary", use_container_width=True):
-        st.session_state["uploaded_events"] = valid
-        st.session_state["upload_id"] = fingerprint
-        st.session_state["data_source"] = "upload"
+        with st.spinner("جارٍ التحقق من الحقول وتجميع التنبيهات وحساب الأولوية…"):
+            st.session_state["uploaded_events"] = valid
+            st.session_state["upload_id"] = fingerprint
+            st.session_state["data_source"] = "upload"
         st.rerun()
     return None, "demo"
 
@@ -395,12 +415,12 @@ def filter_cases(cases: pd.DataFrame) -> pd.DataFrame:
 
 
 def overview(cases: pd.DataFrame, evidence: dict[str, pd.DataFrame]) -> None:
-    st.subheader("نظرة عامة")
+    st.markdown('<div class="section-title">نظرة عامة على الحالات</div>', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("إجمالي الحالات", f"{len(cases):,}")
-    c2.metric("الحالات المفتوحة", f"{cases['status'].ne('مغلقة').sum():,}")
-    c3.metric("أولوية عاجلة أو عالية", f"{cases['priority'].isin(['عاجلة', 'عالية']).sum():,}")
-    c4.metric("قيد التحقيق", f"{cases['status'].eq('قيد التحقيق').sum():,}")
+    c1.metric("◉ إجمالي الحالات", f"{len(cases):,}")
+    c2.metric("⚠ العاجلة", f"{cases['priority'].eq('عاجلة').sum():,}")
+    c3.metric("⌕ قيد التحقيق", f"{cases['status'].eq('قيد التحقيق').sum():,}")
+    c4.metric("✓ المغلقة", f"{cases['status'].eq('مغلقة').sum():,}")
     left, right = st.columns(2)
     timed = cases.dropna(subset=["last_time"])
     with left:
@@ -412,8 +432,10 @@ def overview(cases: pd.DataFrame, evidence: dict[str, pd.DataFrame]) -> None:
             series = events.set_index("alert_time").resample("h").size().rename("عدد التنبيهات")
             st.line_chart(series)
     with right:
-        st.markdown("#### التوزيع حسب النوع")
-        st.bar_chart(cases["alert_type"].value_counts().rename("عدد الحالات"), horizontal=True)
+        st.markdown("#### توزيع الأولويات")
+        priority_order = ["عاجلة", "عالية", "متوسطة", "منخفضة"]
+        distribution = cases["priority"].value_counts().reindex(priority_order, fill_value=0).rename("عدد الحالات")
+        st.bar_chart(distribution, horizontal=True, color="#8B5CF6")
 
 
 def sanitize_spreadsheet_value(value):
@@ -440,7 +462,13 @@ def alerts_table(cases: pd.DataFrame) -> None:
     table = cases[["last_time", "alert_type", "source_ip", "target", "severity", "priority", "status", "event_count", "case_id"]].copy()
     table.columns = ["الوقت", "نوع التنبيه", "عنوان المصدر", "الهدف", "الخطورة", "أولوية المراجعة", "حالة التحقيق", "عدد الأحداث", "معرّف الحالة"]
     st.caption(f"يعرض الجدول {len(table):,} حالة. الترتيب الافتراضي يبدأ بالأولوية الأعلى.")
-    st.dataframe(table, use_container_width=True, hide_index=True)
+    priority_colors = {"عاجلة": "#FB7185", "عالية": "#FB923C", "متوسطة": "#FACC15", "منخفضة": "#2DD4BF"}
+    status_colors = {"جديدة": "#8B5CF6", "قيد التحقيق": "#2DD4BF", "مصعّدة": "#FB923C", "مغلقة": "#64748B"}
+    def color_badges(value):
+        color = priority_colors.get(str(value), status_colors.get(str(value)))
+        return f"color:{color};font-weight:700" if color else ""
+    styled = table.style.applymap(color_badges, subset=["أولوية المراجعة", "حالة التحقيق"])
+    st.dataframe(styled, use_container_width=True, hide_index=True, height=520)
     st.download_button("⬇️ تصدير النتائج", safe_export_csv(cases),
                        "triage_cases.csv", "text/csv", use_container_width=True)
 
@@ -517,17 +545,26 @@ def rule_performance(cases: pd.DataFrame, source: str) -> None:
 
 
 def main() -> None:
-    st.title("🛡️ تحليل وفرز تنبيهات مركز العمليات الأمنية")
-    st.caption("من التنبيه الخام إلى حالة مرتبة، وسبب واضح، وأدلة قابلة للمراجعة، وقرار محفوظ.")
-
     if "data_source" not in st.session_state:
         st.session_state["data_source"] = "demo"
-    action1, action2 = st.columns(2)
-    if action1.button("🧪 جرّبي بيانات جاهزة", use_container_width=True,
-                      type="primary" if st.session_state["data_source"] == "demo" else "secondary"):
-        st.session_state["data_source"] = "demo"
-        st.rerun()
-    if action2.button("📤 ارفعي ملف تنبيهات", use_container_width=True):
+
+    st.sidebar.markdown(
+        '<div class="side-brand"><div class="shield">🛡</div><div><strong>مرصد SOC</strong><small>تحليل وفرز التنبيهات</small></div></div>',
+        unsafe_allow_html=True,
+    )
+    section = st.sidebar.radio("التنقل", ["نظرة عامة", "التنبيهات", "التحقيقات", "أداء الكشف"], label_visibility="collapsed")
+
+    source_name = "priority_queue.csv" if st.session_state["data_source"] == "demo" else "الملف المرفوع"
+    last_analysis = pd.Timestamp.now(tz="Asia/Riyadh").strftime("%H:%M، %d/%m/%Y")
+    st.markdown(
+        f'<div class="hero"><div><div class="eyebrow">مركز العمليات الأمنية</div><h1>مركز مراقبة التنبيهات</h1>'
+        f'<p>الملف الجاري تحليله: <span class="ltr">{source_name}</span> · آخر تحليل: {last_analysis}</p></div></div>',
+        unsafe_allow_html=True,
+    )
+    header_space, upload_action = st.columns([5, 1])
+    with header_space:
+        st.caption("راقب الأولويات، راجع الأدلة، واحفظ قرارات التحقيق من مكان واحد.")
+    if upload_action.button("＋ رفع ملف", type="primary", use_container_width=True):
         st.session_state["show_upload"] = True
 
     if st.session_state.get("show_upload"):
@@ -547,12 +584,11 @@ def main() -> None:
     cases, evidence = make_cases(events, source, dataset_id)
     cases = attach_investigations(cases)
     filtered = filter_cases(cases)
-    section = st.sidebar.radio("القسم", ["نظرة عامة", "قائمة التنبيهات", "تفاصيل الحالة", "أداء قواعد الكشف"])
     if section == "نظرة عامة":
         overview(filtered, evidence)
-    elif section == "قائمة التنبيهات":
+    elif section == "التنبيهات":
         alerts_table(filtered)
-    elif section == "تفاصيل الحالة":
+    elif section == "التحقيقات":
         case_details(filtered, evidence)
     else:
         rule_performance(filtered, source)
