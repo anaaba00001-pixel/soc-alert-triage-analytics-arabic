@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import html
 import io
+import json
 import sqlite3
 from pathlib import Path
 
@@ -37,68 +38,112 @@ ARABIC_RULES = {
 
 
 st.set_page_config(page_title="مركز مراقبة التنبيهات", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
-st.markdown(
-    """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
-    :root { --bg:#0B1020; --card:#151D33; --line:#2B3A59; --teal:#2DD4BF; --teal2:#22D3EE; --violet:#8B5CF6; --pink:#D946EF; --muted:#94A3B8; --ease:cubic-bezier(.22,1,.36,1); }
-    html, body, [class*="css"], .stApp { direction:rtl; text-align:right; font-family:'IBM Plex Sans Arabic',sans-serif; }
-    .stApp { position:relative; overflow:hidden; background:radial-gradient(circle at 85% 2%,rgba(139,92,246,.18),transparent 30%),radial-gradient(circle at 12% 88%,rgba(45,212,191,.1),transparent 27%),var(--bg); }
-    .stApp::before,.stApp::after { content:""; position:fixed; width:28rem; height:28rem; border-radius:50%; filter:blur(90px); opacity:.11; pointer-events:none; z-index:0; animation:ambientGlow 14s ease-in-out infinite alternate; }
-    .stApp::before { top:-13rem; right:18%; background:var(--violet); }
-    .stApp::after { bottom:-15rem; left:8%; background:var(--teal); animation-delay:-7s; }
-    .main,.main .block-container { position:relative; z-index:1; }
-    .main .block-container { max-width:1500px; padding:2rem 2.4rem 4rem; animation:contentIn .55s var(--ease) both; }
-    [data-testid="stSidebar"] { direction:rtl; right:0; left:auto; background:linear-gradient(180deg,rgba(17,25,46,.98) 0%,rgba(8,13,27,.98) 100%); border-left:1px solid rgba(139,92,246,.25); box-shadow:-18px 0 55px rgba(0,0,0,.22); }
-    [data-testid="stSidebar"] > div:first-child { padding-top:1.25rem; }
-    [data-testid="stSidebar"] [role="radiogroup"] label { position:relative; padding:.68rem .85rem; border:1px solid transparent; border-radius:12px; transition:transform .25s var(--ease),background .25s ease,border-color .25s ease,box-shadow .25s ease; }
-    [data-testid="stSidebar"] [role="radiogroup"] label:hover { transform:translateX(-4px); background:rgba(45,212,191,.08); border-color:rgba(45,212,191,.14); }
-    [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) { color:#5EEAD4; background:linear-gradient(90deg,rgba(45,212,191,.17),rgba(139,92,246,.08)); border-color:rgba(45,212,191,.24); box-shadow:inset -3px 0 0 var(--teal),0 8px 26px rgba(45,212,191,.08); }
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color:#CBD5E1; }
-    [data-testid="stDataFrame"] { direction:ltr; border:1px solid rgba(139,92,246,.22); border-radius:18px; overflow:hidden; background:rgba(15,23,42,.62); box-shadow:0 20px 45px rgba(0,0,0,.18); transition:border-color .25s ease,box-shadow .25s ease; }
-    [data-testid="stDataFrame"]:hover { border-color:rgba(45,212,191,.32); box-shadow:0 22px 55px rgba(0,0,0,.24),0 0 28px rgba(45,212,191,.05); }
-    div[data-testid="stMetric"] { position:relative; overflow:hidden; background:linear-gradient(145deg,rgba(24,34,59,.96),rgba(15,23,42,.84)); border:1px solid rgba(139,92,246,.22); padding:1.08rem 1.2rem; border-radius:18px; box-shadow:0 16px 38px rgba(0,0,0,.18); transition:transform .3s var(--ease),border-color .3s ease,box-shadow .3s ease; }
-    div[data-testid="stMetric"]::before { content:""; position:absolute; inset:0 0 auto 0; height:2px; background:linear-gradient(90deg,var(--teal),var(--violet),transparent 85%); }
-    div[data-testid="stMetric"]::after { content:""; position:absolute; width:90px; height:90px; top:-58px; left:-45px; border-radius:50%; background:var(--violet); filter:blur(34px); opacity:.18; }
-    div[data-testid="stMetric"]:hover { transform:translateY(-5px); border-color:rgba(45,212,191,.4); box-shadow:0 24px 50px rgba(0,0,0,.24),0 0 30px rgba(45,212,191,.08); }
-    div[data-testid="stMetric"] label { color:var(--muted); }
-    div[data-testid="stMetric"] [data-testid="stMetricValue"] { color:#F8FAFC; font-weight:700; }
-    div[data-testid="stVerticalBlockBorderWrapper"] { background:linear-gradient(145deg,rgba(21,29,51,.82),rgba(10,16,32,.76)); border-color:rgba(139,92,246,.24)!important; border-radius:18px; box-shadow:0 18px 44px rgba(0,0,0,.16); }
-    .stButton button,.stDownloadButton button,[data-testid="stFormSubmitButton"] button { position:relative; overflow:hidden; min-height:2.75rem; border-radius:12px; border-color:rgba(45,212,191,.42); background:rgba(21,29,51,.88); transition:transform .25s var(--ease),box-shadow .25s ease,border-color .25s ease,background .25s ease; }
-    [data-testid="stBaseButton-primary"],.stButton button[kind="primary"],[data-testid="stFormSubmitButton"] button { color:#06131A!important; font-weight:700; border:0!important; background:linear-gradient(110deg,var(--teal),var(--teal2),#67E8F9)!important; box-shadow:0 10px 28px rgba(45,212,191,.2); }
-    .stButton button:hover,.stDownloadButton button:hover,[data-testid="stFormSubmitButton"] button:hover { transform:translateY(-3px) scale(1.01); box-shadow:0 14px 34px rgba(45,212,191,.25),0 0 26px rgba(45,212,191,.14); border-color:var(--teal); }
-    .stButton button:active,.stDownloadButton button:active,[data-testid="stFormSubmitButton"] button:active { transform:translateY(0) scale(.98); transition-duration:.08s; }
-    .hero { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.25rem; padding:1.15rem 1.35rem; border:1px solid rgba(139,92,246,.2); border-radius:20px; background:linear-gradient(110deg,rgba(21,29,51,.76),rgba(139,92,246,.08),rgba(45,212,191,.04)); box-shadow:0 20px 55px rgba(0,0,0,.17); }
-    .hero h1 { margin:0; font-size:2rem; letter-spacing:-.02em; }
-    .hero p { margin:.35rem 0 0; color:var(--muted); }
-    .eyebrow { color:var(--teal); font-size:.78rem; font-weight:700; letter-spacing:.08em; }
-    .side-brand { display:flex; gap:.75rem; align-items:center; padding:.8rem .55rem 1.25rem; border-bottom:1px solid var(--line); margin-bottom:1rem; }
-    .shield { width:44px; height:44px; display:grid; place-items:center; border-radius:14px; color:#07111D; background:linear-gradient(135deg,var(--teal),var(--violet)); box-shadow:0 0 26px rgba(45,212,191,.28),0 0 44px rgba(139,92,246,.12); font-size:1.3rem; animation:shieldPulse 4s ease-in-out infinite; }
-    .side-brand strong { display:block; color:#F8FAFC; } .side-brand small { color:var(--muted); }
-    .section-title { margin-top:.35rem; color:#F8FAFC; font-size:1.15rem; font-weight:700; }
-    .case-panel { border:1px solid rgba(45,212,191,.25); border-radius:18px; padding:1.1rem; background:linear-gradient(150deg,rgba(24,34,59,.96),rgba(11,16,32,.92)); box-shadow:0 18px 48px rgba(0,0,0,.2),inset 0 1px 0 rgba(255,255,255,.03); animation:panelIn .4s var(--ease) both; }
-    .case-panel .priority { color:#FB923C; font-size:.78rem; font-weight:700; }
-    .case-panel h3 { margin:.2rem 0 .55rem; }
-    .case-panel p { color:#CBD5E1; line-height:1.75; }
-    code, .ltr { direction:ltr; unicode-bidi:embed; display:inline-block; }
-    h1,h2,h3,h4 { color:#F8FAFC; }
-    [data-testid="stAlert"] { border-radius:14px; border-color:rgba(139,92,246,.25); background:rgba(21,29,51,.75); }
-    [data-baseweb="input"]>div,[data-baseweb="select"]>div,[data-baseweb="textarea"] { border-radius:12px!important; border-color:rgba(139,92,246,.26)!important; background:rgba(10,16,32,.72)!important; transition:border-color .22s ease,box-shadow .22s ease!important; }
-    [data-baseweb="input"]>div:focus-within,[data-baseweb="select"]>div:focus-within,[data-baseweb="textarea"]:focus-within { border-color:var(--teal)!important; box-shadow:0 0 0 3px rgba(45,212,191,.1),0 0 24px rgba(45,212,191,.08)!important; }
-    [data-testid="stFileUploaderDropzone"] { border-radius:16px; border:1px dashed rgba(45,212,191,.46); background:linear-gradient(135deg,rgba(45,212,191,.06),rgba(139,92,246,.06)); transition:background .25s ease,border-color .25s ease,transform .25s var(--ease); }
-    [data-testid="stFileUploaderDropzone"]:hover { transform:translateY(-2px); border-color:var(--teal); background:linear-gradient(135deg,rgba(45,212,191,.1),rgba(139,92,246,.09)); }
-    [data-testid="stProgress"]>div>div { background:linear-gradient(90deg,var(--teal),var(--violet),var(--pink)); box-shadow:0 0 18px rgba(45,212,191,.28); }
-    ::-webkit-scrollbar { width:9px; height:9px; } ::-webkit-scrollbar-track { background:#0B1020; } ::-webkit-scrollbar-thumb { background:linear-gradient(var(--violet),var(--teal)); border-radius:10px; border:2px solid #0B1020; }
-    @keyframes contentIn { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:none} }
-    @keyframes panelIn { from{opacity:0;transform:translateX(-14px) scale(.98)} to{opacity:1;transform:none} }
-    @keyframes ambientGlow { from{transform:translate3d(-2%,0,0) scale(.95)} to{transform:translate3d(8%,5%,0) scale(1.12)} }
-    @keyframes shieldPulse { 0%,100%{transform:translateY(0);box-shadow:0 0 24px rgba(45,212,191,.24)} 50%{transform:translateY(-2px);box-shadow:0 0 34px rgba(45,212,191,.4),0 0 50px rgba(139,92,246,.18)} }
-    @media(prefers-reduced-motion:reduce){ *,*::before,*::after{animation:none!important;transition-duration:.01ms!important;scroll-behavior:auto!important} }
-    @media(max-width:900px){ .main .block-container{padding:1.2rem}.hero{align-items:flex-start}.hero h1{font-size:1.55rem} }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+PALETTES = {
+    False: {
+        "page": "#F4F6F4", "panel": "#FFFFFF", "soft": "#F8FAF8", "text": "#1D3026",
+        "muted": "#708078", "line": "#E5EBE6", "accent": "#157347", "tint": "#E6F3EB",
+        "shadow": "0 5px 24px rgba(25,60,40,.035)", "color-scheme": "light",
+    },
+    True: {
+        "page": "#101B16", "panel": "#19271F", "soft": "#213228", "text": "#EAF3ED",
+        "muted": "#A7BAAC", "line": "#304337", "accent": "#83D9AB", "tint": "#284735",
+        "shadow": "0 5px 24px rgba(0,0,0,.12)", "color-scheme": "dark",
+    },
+}
+
+
+DASHBOARD_STYLES = r"""
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+html, body, .stApp { direction:rtl; font-family:'IBM Plex Sans Arabic',sans-serif; }
+.stApp { background:var(--page); color:var(--text); color-scheme:var(--color-scheme); }
+[data-testid="stAppViewContainer"] { background:var(--page); }
+[data-testid="stHeader"] { background:var(--page); color:var(--text); }
+[data-testid="stMainBlockContainer"] { max-width:1450px; padding:2.2rem 2.2rem 3rem; }
+[data-testid="stSidebar"] { right:0; left:auto; background:var(--panel); border-left:1px solid var(--line); color:var(--text); }
+[data-testid="stSidebarContent"] { padding-top:1rem; }
+h1,h2,h3,h4,h5,h6,p,label, [data-testid="stWidgetLabel"] { color:var(--text); font-family:'IBM Plex Sans Arabic',sans-serif; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { color:var(--muted); font-size:.8rem; }
+[data-testid="stSidebar"] [role="radiogroup"] label { padding:.65rem .8rem; border-radius:10px; transition:background .18s ease; }
+[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) { background:var(--tint); color:var(--accent); box-shadow:inset -3px 0 var(--accent); font-weight:600; }
+[data-testid="stSidebar"] [role="radiogroup"] label:hover { background:var(--soft); }
+.side-brand { display:flex; gap:.8rem; align-items:center; padding:1rem 0 1.75rem; }
+.brand-symbol { width:38px;height:38px;border:2px solid var(--accent);color:var(--accent);border-radius:50%;display:grid;place-items:center;font-size:30px;line-height:1; }
+.side-brand strong { display:block; font-size:1.35rem; letter-spacing:-.5px; color:var(--text); }
+.side-brand small { display:block; color:var(--muted); font-size:.68rem; }
+.nav-label { color:var(--muted); font-size:.68rem; margin-bottom:.6rem; }
+.hero { margin:.4rem 0 .3rem; }
+.hero h1 { margin:0; padding:.2rem 0; font-size:2rem; font-weight:600; letter-spacing:-.7px; }
+.hero p { margin:.35rem 0 0; color:var(--muted); font-size:.78rem; }
+.eyebrow { color:var(--accent); font-size:.73rem; font-weight:500; }
+.stButton button,.stDownloadButton button,[data-testid="stFormSubmitButton"] button { min-height:2.5rem; border-radius:25px; border:1px solid var(--line); background:var(--panel); color:var(--text); font-family:inherit; font-size:.85rem; transition:transform .15s ease; }
+.stButton button:hover,.stDownloadButton button:hover { border-color:var(--accent); color:var(--accent); transform:translateY(-1px); }
+.stButton button[kind="primary"], [data-testid="stBaseButton-primary"], [data-testid="stFormSubmitButton"] button { background:#176B45; color:#FFF; border-color:#176B45; }
+.stButton button[kind="primary"] p, [data-testid="stBaseButton-primary"] p, [data-testid="stFormSubmitButton"] button p { color:#FFF; }
+[data-testid="stMetric"] { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:1.15rem 1.2rem .9rem; box-shadow:var(--shadow); }
+[data-testid="stMetricLabel"] p { color:var(--text); font-size:.83rem; }
+[data-testid="stMetricValue"] { color:var(--text); font-weight:500; font-size:2.6rem; }
+[data-testid="stMetricDelta"] { color:var(--muted); font-size:.67rem; }
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child [data-testid="stMetric"] { background:linear-gradient(140deg,#135C3A,#228455); border-color:#228455; }
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child [data-testid="stMetric"] p, [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child [data-testid="stMetricValue"] { color:#FFF; }
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child [data-testid="stMetricDelta"] { color:#BFE3CB; }
+[data-testid="stVerticalBlockBorderWrapper"], [data-testid="stVerticalBlock"] > [data-testid="stLayoutWrapper"] > [data-testid="stVerticalBlockBorderWrapper"] { background:var(--panel); border-color:var(--line)!important; border-radius:18px; box-shadow:var(--shadow); }
+[data-testid="stVerticalBlockBorderWrapper"] h4 { margin:0; padding:0 0 .2rem; font-size:1rem; font-weight:600; }
+[data-testid="stTextInput"] input,[data-testid="stTextArea"] textarea,[role="combobox"] { background:var(--soft)!important; color:var(--text)!important; border-radius:10px; }
+[data-testid="stTextInput"] > div,[data-testid="stTextArea"] > div { background:var(--soft); border-color:var(--line); }
+[data-testid="stSidebar"] [data-testid="stMultiSelect"] { font-size:.8rem; }
+[data-testid="stFileUploaderDropzone"] { background:var(--soft); color:var(--text); border:1px dashed var(--accent); border-radius:16px; }
+[data-testid="stAlert"] { background:var(--tint); color:var(--text); border:1px solid var(--line); border-radius:12px; }
+[data-testid="stDataFrame"] { direction:ltr; border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+[data-testid="stExpander"] { background:var(--panel); color:var(--text); border-color:var(--line); border-radius:14px; }
+[data-testid="stForm"] { background:var(--panel); border-color:var(--line); border-radius:14px; }
+.empty-chart { height:195px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center; }
+.empty-chart>span { width:44px;height:44px;display:grid;place-items:center;background:var(--tint);border-radius:50%;color:var(--accent);font-size:1.7rem;margin-bottom:.8rem; }
+.empty-chart strong { font-weight:500; color:var(--text); font-size:.9rem; }
+.empty-chart p { max-width:280px;color:var(--muted);font-size:.75rem;margin-top:.5rem; }
+.activity-row { display:flex;align-items:center;gap:.65rem;padding:.7rem 0;border-bottom:1px solid var(--line); }
+.activity-row:last-child { border-bottom:0; }
+.activity-icon { width:34px;height:34px;flex-shrink:0;display:grid;place-items:center;border-radius:50%;background:var(--tint);color:var(--accent);font-size:1.2rem; }
+.activity-info { flex:1;min-width:0; }
+.activity-info strong { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem;font-weight:500;color:var(--text); }
+.activity-info span { color:var(--muted);font-size:.69rem; }
+.badge { padding:.2rem .55rem;border-radius:6px;font-size:.66rem; }
+.badge.urgent { background:#F8E4DF;color:#8E3B31; }.badge.high { background:#F9EED7;color:#855D19; }.badge.medium { background:#E5F2E8;color:#27623D; }.badge.low { background:#EEF3EF;color:#446F54; }
+.progress-ring { width:184px;height:184px;border-radius:50%;margin:.8rem auto;background:conic-gradient(#238354 var(--progress),var(--tint) 0);display:grid;place-items:center; }
+.progress-ring>div { width:148px;height:148px;border-radius:50%;background:var(--panel);display:flex;align-items:center;justify-content:center;flex-direction:column; }
+.progress-ring strong { font-size:2.6rem;font-weight:500;color:var(--text);direction:ltr; }.progress-ring span { color:var(--muted);font-size:.7rem; }
+.ring-legend { display:flex;justify-content:center;gap:1.2rem;font-size:.72rem;color:var(--muted);padding-bottom:.3rem; }
+.ring-legend i { display:inline-block;width:7px;height:7px;background:#238354;border-radius:50%;margin-left:.4rem; }
+.case-panel { border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:1rem; }.case-panel h3{font-size:1.15rem;}.case-panel p{color:var(--text);font-size:.85rem;line-height:1.8}.priority{font-size:.78rem;font-weight:600}
+code,.ltr { direction:ltr;unicode-bidi:embed;display:inline-block; }
+@media(max-width:900px){ [data-testid="stMainBlockContainer"]{padding:1rem}.hero h1{font-size:1.5rem}[data-testid="stMetric"]{padding:.7rem}.progress-ring{width:154px;height:154px}.progress-ring>div{width:124px;height:124px} }
+@media(prefers-reduced-motion:reduce){ *{transition:none!important} }
+
+.hero { text-align:right; }
+.st-key-trend-panel,.st-key-priority-panel,.st-key-activity-panel,.st-key-completion-panel { background:var(--panel); border-color:var(--line)!important; border-radius:18px; box-shadow:var(--shadow); }
+.st-key-trend-panel h4,.st-key-priority-panel h4,.st-key-activity-panel h4,.st-key-completion-panel h4 { font-size:1rem; font-weight:600; padding-top:.2rem; padding-bottom:0; }
+[data-testid="stMultiSelect"] .react-aria-ComboBox,[data-testid="stMultiSelect"] [data-rac][role="group"],[data-testid="stSelectbox"] [role="combobox"] { background:var(--soft)!important; color:var(--text)!important; border-color:var(--line)!important; }
+[data-testid="stMultiSelect"] input { background:transparent!important; color:var(--text)!important; }
+[data-testid="stMultiSelect"] button { color:var(--muted); }
+[role="listbox"] { background:var(--panel)!important; color:var(--text)!important; border-color:var(--line)!important; }
+[role="option"] { color:var(--text)!important; }
+[role="option"][data-focused] { background:var(--tint)!important; }
+[data-testid="stVegaLiteChart"] { direction:ltr; }
+[data-testid="stAlertContainer"] { background:var(--tint)!important; color:var(--text)!important; border:1px solid var(--line); border-radius:12px; }
+[data-testid="stAlertContainer"] p { color:var(--text)!important; }
+"""
+
+def apply_theme() -> None:
+    palette = PALETTES[st.session_state.get("dark_mode", False)]
+    variables = ";".join(f"--{key}:{value}" for key, value in palette.items())
+    styles = DASHBOARD_STYLES
+    st.markdown(f"<style>:root{{{variables}}}{styles}</style>", unsafe_allow_html=True)
+
+
+def show_dataframe(data, **kwargs):
+    palette = PALETTES[st.session_state.get("dark_mode", False)]
+    styled = data.style.set_properties(color=palette["text"]) if isinstance(data, pd.DataFrame) else data
+    styled = styled.set_properties(**{"background-color": palette["panel"]})
+    return st.dataframe(styled, **kwargs)
 
 
 def db_connection() -> sqlite3.Connection:
@@ -222,18 +267,29 @@ def fixed_five_minute_windows(times: pd.Series) -> pd.Series:
     return pd.Series(window_ids, index=times.index)
 
 
-LOGIN_WORDS = ("login", "logon", "sign-in", "sign in", "تسجيل دخول", "محاولة دخول")
+LOGIN_EVENT_TYPES = {"login", "logon", "sign in", "تسجيل دخول", "محاولة دخول", "دخول"}
+LOGIN_FAILURE_TYPES = {
+    "login failure", "login failed", "failed login", "unsuccessful login",
+    "logon failure", "logon failed", "failed logon", "sign in failure", "sign in failed",
+    "فشل تسجيل الدخول", "فشل تسجيل دخول", "فشل دخول", "دخول فاشل",
+    "تسجيل دخول فاشل", "محاولة دخول فاشلة",
+}
+LOGIN_SUCCESS_TYPES = {
+    "login success", "login successful", "successful login", "login succeeded",
+    "logon success", "successful logon", "sign in success", "successful sign in",
+    "نجاح تسجيل الدخول", "نجاح تسجيل دخول", "نجاح دخول", "دخول ناجح", "تسجيل دخول ناجح",
+}
 FAILURE_OUTCOMES = {"failure", "failed", "fail", "فشل", "فاشل"}
 SUCCESS_OUTCOMES = {"success", "successful", "succeeded", "نجاح", "ناجح"}
+UPLOAD_IDENTITY_COLUMNS = ["source_ip", "target", "target_account"]
 
 
-def is_login_event(row: pd.Series) -> bool:
-    text = f"{row.get('alert_type', '')} {row.get('detection_rule', '')}".lower()
-    return any(word in text for word in LOGIN_WORDS)
+def normalized_alert_type(value: str) -> str:
+    return " ".join(value.casefold().replace("-", " ").replace("_", " ").split())
 
 
 def classify_outcome(row: pd.Series) -> str:
-    """Prefer the explicit outcome; infer from the alert type only when it is blank."""
+    """Use an explicit outcome, or infer it from a recognized login label."""
     explicit = str(row.get("event_outcome", "") or "").strip().lower()
     if explicit:
         if explicit in FAILURE_OUTCOMES:
@@ -242,24 +298,59 @@ def classify_outcome(row: pd.Series) -> str:
             return "success"
         return "other"
 
-    description = str(row.get("alert_type", "") or "").strip().lower()
-    # Failure must be checked first because "unsuccessful" contains "successful".
-    if any(word in description for word in ("unsuccessful", "failed", "failure", "فاشل", "فشل")):
+    description = normalized_alert_type(str(row.get("alert_type", "")))
+    if description in LOGIN_FAILURE_TYPES:
         return "failure"
-    if any(word in description for word in ("successful", "succeeded", "success", "ناجح", "نجاح")):
+    if description in LOGIN_SUCCESS_TYPES:
         return "success"
     return "other"
 
 
 def has_failure_then_success(group: pd.DataFrame) -> bool:
-    if not str(group["target_account"].iloc[0]).strip() or not group.apply(is_login_event, axis=1).all():
-        return False
     outcomes = group.apply(classify_outcome, axis=1)
     failures = outcomes.eq("failure")
     successes = outcomes.eq("success")
     if not failures.any() or not successes.any():
         return False
     return group.loc[successes, "alert_time"].max() > group.loc[failures, "alert_time"].min()
+
+
+def case_windows(data: pd.DataFrame, columns: list[str]):
+    for key, related in data.groupby(columns, dropna=False, sort=False):
+        window = fixed_five_minute_windows(related["alert_time"])
+        for _, group in related.groupby(window):
+            yield key, group
+
+
+def previous_upload_ids(data: pd.DataFrame, dataset_id: str) -> dict[frozenset, list[str]]:
+    """Rebuild prior file-scoped cases and keep only unambiguous identities."""
+    # Reproduce the event families used by e42a98c for saved IDs.
+    old_login_words = ("login", "logon", "sign-in", "sign in", "تسجيل دخول", "محاولة دخول")
+    old_text = (data["alert_type"] + " " + data["detection_rule"]).str.lower()
+    old_login = old_text.map(lambda value: any(word in value for word in old_login_words))
+    old_families = (data["alert_type"] + "|" + data["detection_rule"]).mask(old_login, "__login__")
+    # e5428bc grouped across families, and e42a98c split the same windows by family.
+    versions = (
+        (data, UPLOAD_IDENTITY_COLUMNS),
+        (data.assign(_old_family=old_families), UPLOAD_IDENTITY_COLUMNS + ["_old_family"]),
+    )
+
+    by_id: dict[str, set[frozenset]] = {}
+    for version, columns in versions:
+        for key, group in case_windows(version, columns):
+            start = group["alert_time"].iloc[0].isoformat()
+            parts = (dataset_id, *key[:3], start)
+            if len(key) == 4 and key[3] != "__login__":
+                parts += (key[3],)
+            case_id = "csv-" + stable_case_id(parts)
+            by_id.setdefault(case_id, set()).add(frozenset(group.index))
+
+    by_members: dict[frozenset, list[str]] = {}
+    for case_id, memberships in by_id.items():
+        if len(memberships) == 1:
+            members = next(iter(memberships))
+            by_members.setdefault(members, []).append(case_id)
+    return by_members
 
 
 def highest_severity(group: pd.DataFrame) -> tuple[str, int]:
@@ -308,52 +399,43 @@ def make_cases(events: pd.DataFrame, source: str, dataset_id: str = "demo") -> t
                          "target": first["target"], "target_account": "", "severity": first["severity"],
                          "priority_level": level, "priority": PRIORITY_LABELS[level], "reason": reason,
                          "event_count": event_count, "detection_rule": first["detection_rule"],
-                         "previous_case_id": previous_case_id, "source": source})
+                         "previous_case_id": previous_case_id, "previous_case_ids": [previous_case_id], "source": source})
     else:
         # Exact duplicate rows are one event. Separate attempts are preserved as evidence.
-        data = data.drop_duplicates(subset=ALL_COLUMNS).sort_values("alert_time")
-        # Login variants share a family. Other alert types remain separate even if
-        # source, target and account happen to match.
-        data["_event_family"] = data.apply(
-            lambda row: "__login__" if is_login_event(row)
-            else f"{row['alert_type']}|{row['detection_rule']}",
-            axis=1,
-        )
-        group_columns = ["source_ip", "target", "target_account", "_event_family"]
-        for key, related in data.groupby(group_columns, dropna=False, sort=False):
-            related = related.sort_values("alert_time").copy()
-            window = fixed_five_minute_windows(related["alert_time"])
-            for _, group in related.groupby(window):
-                severity_label, severity_value = highest_severity(group)
-                count = len(group)
-                burst_bonus = 2 if count >= 10 else 1 if count >= 3 else 0
-                success_after_failure = has_failure_then_success(group)
-                context_bonus = 1 if success_after_failure else 0
-                level = min(4, max(1, severity_value + burst_bonus + context_bonus))
-                identity_key = tuple(key[:3])
-                case_parts = (dataset_id,) + identity_key + (group["alert_time"].min().isoformat(),)
-                if key[3] != "__login__":
-                    case_parts += (key[3],)
-                case_id = "csv-" + stable_case_id(case_parts)
-                account_text = f" إلى الحساب {key[2]}" if key[2] else ""
-                alert_types = " / ".join(dict.fromkeys(group["alert_type"].astype(str)))
-                detection_rules = " / ".join(filter(None, dict.fromkeys(group["detection_rule"].astype(str)))) or "غير محددة"
-                duration = group["alert_time"].max() - group["alert_time"].min()
-                duration_minutes = duration.total_seconds() / 60
-                reason = (
-                    f"أولوية {PRIORITY_LABELS[level]} بسبب {count} حدث/أحداث من المصدر {key[0]}"
-                    f" إلى {key[1]}{account_text} خلال {duration_minutes:.1f} دقيقة؛ الخطورة الأعلى {severity_label}."
-                )
-                if success_after_failure:
-                    reason += " رُصد نجاح دخول بعد فشل للمصدر والهدف والحساب أنفسهم."
-                evidence[case_id] = group.drop(columns="_event_family").copy()
-                rows.append({"case_id": case_id, "first_time": group["alert_time"].min(),
-                             "last_time": group["alert_time"].max(), "alert_type": alert_types,
-                             "source_ip": key[0], "target": key[1], "target_account": key[2],
-                             "severity": severity_label, "priority_level": level,
-                             "priority": PRIORITY_LABELS[level], "reason": reason, "event_count": count,
-                             "detection_rule": detection_rules,
-                             "previous_case_id": "", "source": source})
+        data = data.drop_duplicates(subset=ALL_COLUMNS).sort_values("alert_time", kind="stable").reset_index(drop=True)
+        legacy_ids = previous_upload_ids(data, dataset_id)
+        login_types = LOGIN_EVENT_TYPES | LOGIN_FAILURE_TYPES | LOGIN_SUCCESS_TYPES
+        data["_is_login"] = data["alert_type"].map(normalized_alert_type).isin(login_types)
+        data["_family_type"] = data["alert_type"].mask(data["_is_login"], "")
+        data["_family_rule"] = data["detection_rule"].mask(data["_is_login"], "")
+        family_columns = ["_is_login", "_family_type", "_family_rule"]
+        for key, group in case_windows(data, UPLOAD_IDENTITY_COLUMNS + family_columns):
+            severity_label, severity_value = highest_severity(group)
+            count = len(group)
+            burst_bonus = 2 if count >= 10 else 1 if count >= 3 else 0
+            success_after_failure = bool(key[2] and key[3] and has_failure_then_success(group))
+            level = min(4, severity_value + burst_bonus + int(success_after_failure))
+            case_parts = (dataset_id, *key, group["alert_time"].iloc[0].isoformat())
+            case_id = "csv-v3-" + stable_case_id((json.dumps(case_parts, ensure_ascii=False),))
+            account_text = f" إلى الحساب {key[2]}" if key[2] else ""
+            alert_types = " / ".join(dict.fromkeys(group["alert_type"].astype(str)))
+            detection_rules = " / ".join(filter(None, dict.fromkeys(group["detection_rule"].astype(str)))) or "غير محددة"
+            duration = group["alert_time"].max() - group["alert_time"].min()
+            duration_minutes = duration.total_seconds() / 60
+            reason = (
+                f"أولوية {PRIORITY_LABELS[level]} بسبب {count} حدث/أحداث من المصدر {key[0]}"
+                f" إلى {key[1]}{account_text} خلال {duration_minutes:.1f} دقيقة؛ الخطورة الأعلى {severity_label}."
+            )
+            if success_after_failure:
+                reason += " رُصد نجاح دخول بعد فشل للمصدر والهدف والحساب أنفسهم."
+            evidence[case_id] = group.drop(columns=family_columns).copy()
+            rows.append({"case_id": case_id, "first_time": group["alert_time"].min(),
+                         "last_time": group["alert_time"].max(), "alert_type": alert_types,
+                         "source_ip": key[0], "target": key[1], "target_account": key[2],
+                         "severity": severity_label, "priority_level": level,
+                         "priority": PRIORITY_LABELS[level], "reason": reason, "event_count": count,
+                         "detection_rule": detection_rules,
+                         "previous_case_id": "", "previous_case_ids": legacy_ids.get(frozenset(group.index), []), "source": source})
     cases = sort_cases(pd.DataFrame(rows))
     return cases.reset_index(drop=True), evidence
 
@@ -361,14 +443,18 @@ def make_cases(events: pd.DataFrame, source: str, dataset_id: str = "demo") -> t
 def attach_investigations(cases: pd.DataFrame) -> pd.DataFrame:
     if cases.empty:
         return cases
-    investigations = load_investigations().set_index("case_id")
-    merged = cases.copy()
-    investigation_columns = ["status", "verdict", "notes", "updated_at"]
-    for column in investigation_columns:
-        merged[column] = merged["case_id"].map(investigations[column])
-        if "previous_case_id" in merged:
-            fallback = merged["previous_case_id"].map(investigations[column])
-            merged[column] = merged[column].fillna(fallback)
+    investigations = load_investigations().rename(columns={"case_id": "saved_case_id"})
+    candidates = cases[["case_id"]].assign(saved_case_id=cases["case_id"], is_current=True)
+    aliases = (
+        cases[["case_id", "previous_case_ids"]]
+        .explode("previous_case_ids")
+        .rename(columns={"previous_case_ids": "saved_case_id"})
+    )
+    candidates = pd.concat([candidates, aliases.assign(is_current=False)], ignore_index=True)
+    saved = candidates.merge(investigations, on="saved_case_id", how="inner")
+    saved["timestamp"] = pd.to_datetime(saved["updated_at"], format="mixed", errors="coerce", utc=True)
+    latest = saved.sort_values(["timestamp", "is_current"], ascending=False).drop_duplicates("case_id")
+    merged = cases.merge(latest[["case_id", "status", "verdict", "notes", "updated_at"]], on="case_id", how="left")
     merged["status"] = merged["status"].fillna("جديدة")
     merged["verdict"] = merged["verdict"].fillna("غير محددة")
     merged["notes"] = merged["notes"].fillna("")
@@ -387,17 +473,17 @@ def show_upload() -> tuple[pd.DataFrame | None, str]:
     valid, problems = validate_upload(uploaded.getvalue())
     if valid is None:
         st.error("تعذر قبول الملف.")
-        st.dataframe(problems, use_container_width=True, hide_index=True)
+        show_dataframe(problems, use_container_width=True, hide_index=True)
         return None, "demo"
     col1, col2, col3 = st.columns(3)
     col1.metric("إجمالي الصفوف", len(valid) + len(problems))
     col2.metric("صفوف مقبولة", len(valid))
     col3.metric("تحتاج تصحيحًا", len(problems))
     st.markdown("#### معاينة الصفوف المقبولة")
-    st.dataframe(valid.head(20), use_container_width=True, hide_index=True)
+    show_dataframe(valid.head(20), use_container_width=True, hide_index=True)
     if not problems.empty:
         with st.expander("الصفوف التي تحتاج تصحيحًا", expanded=True):
-            st.dataframe(problems, use_container_width=True, hide_index=True)
+            show_dataframe(problems, use_container_width=True, hide_index=True)
     if valid.empty:
         st.warning("لا توجد صفوف صالحة للتحليل.")
         return None, "demo"
@@ -445,27 +531,79 @@ def filter_cases(cases: pd.DataFrame) -> pd.DataFrame:
 
 
 def overview(cases: pd.DataFrame, evidence: dict[str, pd.DataFrame]) -> None:
-    st.markdown('<div class="section-title">نظرة عامة على الحالات</div>', unsafe_allow_html=True)
+    total = len(cases)
+    closed = int(cases["status"].eq("مغلقة").sum())
+    urgent = int(cases["priority"].eq("عاجلة").sum())
+    investigating = int(cases["status"].eq("قيد التحقيق").sum())
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("◉ إجمالي الحالات", f"{len(cases):,}")
-    c2.metric("⚠ العاجلة", f"{cases['priority'].eq('عاجلة').sum():,}")
-    c3.metric("⌕ قيد التحقيق", f"{cases['status'].eq('قيد التحقيق').sum():,}")
-    c4.metric("✓ المغلقة", f"{cases['status'].eq('مغلقة').sum():,}")
-    left, right = st.columns(2)
-    timed = cases.dropna(subset=["last_time"])
-    with left:
-        st.markdown("#### زيادة التنبيهات عبر الوقت")
-        if timed.empty:
-            st.info("البيانات التجريبية المرتبة لا تحتوي وقت التنبيه. ارفعي CSV لعرض المنحنى الزمني.")
+    c1.metric("إجمالي الحالات", f"{total:,}")
+    c2.metric("حالات عاجلة", f"{urgent:,}")
+    c3.metric("قيد التحقيق", f"{investigating:,}")
+    c4.metric("حالات مغلقة", f"{closed:,}")
+
+    palette = PALETTES[st.session_state.get("dark_mode", False)]
+    chart_config = {
+        "background": "transparent", "view": {"stroke": None},
+        "axis": {"labelColor": palette["muted"], "titleColor": palette["muted"],
+                 "gridColor": palette["line"], "domain": False, "ticks": False,
+                 "labelFont": "IBM Plex Sans Arabic", "labelPadding": 10},
+    }
+    trend, priorities = st.columns([1.35, 1], gap="medium")
+    with trend, st.container(border=True, key="trend-panel"):
+        st.markdown("#### حركة التنبيهات")
+        st.caption("عدد الأحداث عبر الوقت")
+        if cases["last_time"].notna().any():
+            visible_ids = set(cases["case_id"])
+            events = pd.concat([frame for cid, frame in evidence.items() if cid in visible_ids], ignore_index=True)
+            timeline = events.set_index("alert_time").resample("h").size().rename("count").reset_index()
+            st.vega_lite_chart(timeline, {
+                "height": 180, "config": chart_config,
+                "mark": {"type": "bar", "color": "#228455", "cornerRadiusTopLeft": 8, "cornerRadiusTopRight": 8, "size": 28},
+                "encoding": {"x": {"field": "alert_time", "type": "temporal", "title": None, "axis": {"format": "%H:%M"}},
+                             "y": {"field": "count", "type": "quantitative", "title": None},
+                             "tooltip": [{"field": "alert_time", "type": "temporal", "title": "الوقت"}, {"field": "count", "title": "التنبيهات"}]},
+            }, use_container_width=True)
         else:
-            events = pd.concat([frame for cid, frame in evidence.items() if cid in set(cases["case_id"])], ignore_index=True)
-            series = events.set_index("alert_time").resample("h").size().rename("عدد التنبيهات")
-            st.line_chart(series)
-    with right:
-        st.markdown("#### توزيع الأولويات")
+            st.markdown('<div class="empty-chart"><span>◷</span><strong>بانتظار البيانات الزمنية</strong>'
+                        '<p>ارفعي ملف تنبيهات يحتوي أوقات الأحداث لعرض نشاطها هنا.</p></div>', unsafe_allow_html=True)
+    with priorities, st.container(border=True, key="priority-panel"):
+        st.markdown("#### أولوية المراجعة")
+        st.caption("توزيع الحالات حسب الأولوية")
         priority_order = ["عاجلة", "عالية", "متوسطة", "منخفضة"]
-        distribution = cases["priority"].value_counts().reindex(priority_order, fill_value=0).rename("عدد الحالات")
-        st.bar_chart(distribution, horizontal=True, color="#8B5CF6")
+        distribution = cases["priority"].value_counts().reindex(priority_order, fill_value=0).rename_axis("priority").reset_index(name="count")
+        st.vega_lite_chart(distribution, {
+            "height": 180, "config": chart_config,
+            "mark": {"type": "bar", "cornerRadiusEnd": 6, "height": 19},
+            "encoding": {"y": {"field": "priority", "type": "nominal", "sort": priority_order, "title": None},
+                         "x": {"field": "count", "type": "quantitative", "title": None},
+                         "color": {"field": "priority", "type": "nominal", "legend": None,
+                                   "scale": {"domain": priority_order, "range": ["#A5473F", "#B77B32", "#268052", "#88B89C"]}},
+                         "tooltip": [{"field": "priority", "title": "الأولوية"}, {"field": "count", "title": "عدد الحالات"}]},
+        }, use_container_width=True)
+
+    activity, completion = st.columns([1.35, 1], gap="medium")
+    with activity, st.container(border=True, key="activity-panel"):
+        st.markdown("#### حالات تستحق المراجعة")
+        st.caption("أول أربع حالات وفق الترتيب المختار")
+        for row in cases.head(4).itertuples():
+            tone = {"عاجلة": "urgent", "عالية": "high", "متوسطة": "medium", "منخفضة": "low"}[row.priority]
+            st.markdown(
+                f'<div class="activity-row"><div class="activity-icon">◎</div><div class="activity-info">'
+                f'<strong>{html.escape(str(row.alert_type))}</strong><span class="ltr">{html.escape(str(row.source_ip))}</span>'
+                f'</div><span class="badge {tone}">{row.priority}</span></div>', unsafe_allow_html=True,
+            )
+        if cases.empty:
+            st.info("لا توجد حالات تطابق التصفية الحالية.")
+    with completion, st.container(border=True, key="completion-panel"):
+        percent = round(closed * 100 / total) if total else 0
+        st.markdown("#### تقدم التحقيقات")
+        st.caption("نسبة الحالات المغلقة ضمن النتائج المعروضة")
+        st.markdown(
+            f'<div class="progress-ring" style="--progress:{percent}%" role="img" aria-label="الحالات المغلقة {percent}%">'
+            f'<div><strong>{percent}%</strong><span>اكتملت مراجعتها</span></div></div>'
+            f'<div class="ring-legend"><span><i></i>مغلقة {closed:,}</span><span>مفتوحة {total - closed:,}</span></div>',
+            unsafe_allow_html=True,
+        )
 
 
 def sanitize_spreadsheet_value(value):
@@ -508,9 +646,9 @@ def compact_case_panel(case: pd.Series, evidence: dict[str, pd.DataFrame]) -> No
     with st.expander(f"التسلسل الزمني · {len(raw):,} حدث", expanded=True):
         if "alert_time" in raw and raw["alert_time"].notna().any():
             timeline_columns = ["alert_time", "alert_type", "source_ip", "target", "event_outcome"]
-            st.dataframe(raw[timeline_columns].sort_values("alert_time"), hide_index=True, use_container_width=True, height=220)
+            show_dataframe(raw[timeline_columns].sort_values("alert_time"), hide_index=True, use_container_width=True, height=220)
         elif not raw.empty:
-            st.dataframe(raw.head(20), hide_index=True, use_container_width=True, height=220)
+            show_dataframe(raw.head(20), hide_index=True, use_container_width=True, height=220)
         else:
             st.caption("لا توجد أحداث تفصيلية لهذه الحالة.")
     with st.form(f"quick-investigation-{case['case_id']}"):
@@ -530,15 +668,16 @@ def alerts_table(cases: pd.DataFrame, evidence: dict[str, pd.DataFrame]) -> None
     table = cases[["last_time", "alert_type", "source_ip", "target", "severity", "priority", "status", "event_count", "case_id"]].copy()
     table.columns = ["الوقت", "نوع التنبيه", "عنوان المصدر", "الهدف", "الخطورة", "أولوية المراجعة", "حالة التحقيق", "عدد الأحداث", "معرّف الحالة"]
     st.caption(f"يعرض الجدول {len(table):,} حالة. الترتيب الافتراضي يبدأ بالأولوية الأعلى.")
-    priority_colors = {"عاجلة": "#FB7185", "عالية": "#FB923C", "متوسطة": "#FACC15", "منخفضة": "#2DD4BF"}
+    priority_colors = {"عاجلة": "#C8665C", "عالية": "#B98739", "متوسطة": "#32865A", "منخفضة": "#73A88B"}
     status_colors = {"جديدة": "#8B5CF6", "قيد التحقيق": "#2DD4BF", "مصعّدة": "#FB923C", "مغلقة": "#64748B"}
     def color_badges(value):
         color = priority_colors.get(str(value), status_colors.get(str(value)))
         return f"color:{color};font-weight:700" if color else ""
-    styled = table.style.applymap(color_badges, subset=["أولوية المراجعة", "حالة التحقيق"])
+    palette = PALETTES[st.session_state.get("dark_mode", False)]
+    styled = table.style.set_properties(color=palette["text"]).map(color_badges, subset=["أولوية المراجعة", "حالة التحقيق"])
     table_area, details_area = st.columns([2.15, 1], gap="large")
     with table_area:
-        selection = st.dataframe(
+        selection = show_dataframe(
             styled, use_container_width=True, hide_index=True, height=560,
             on_select="rerun", selection_mode="single-row", key="alerts-table",
         )
@@ -583,10 +722,10 @@ def case_details(cases: pd.DataFrame, evidence: dict[str, pd.DataFrame]) -> None
             st.caption(f"تعرض التفاصيل جميع السجلات وعددها {shown_count:,}.")
         if "alert_time" in raw and raw["alert_time"].notna().any():
             timeline = raw[["alert_time", "alert_type", "source_ip", "target", "target_account", "event_outcome", "severity"]]
-            st.dataframe(timeline.sort_values("alert_time"), use_container_width=True, hide_index=True)
+            show_dataframe(timeline.sort_values("alert_time"), use_container_width=True, hide_index=True)
         else:
             st.caption("البيانات الأصلية لا توفر طابعًا زمنيًا في قائمة الأولوية المحفوظة.")
-            st.dataframe(raw, use_container_width=True, hide_index=True)
+            show_dataframe(raw, use_container_width=True, hide_index=True)
     with st.form(f"investigation-{selected_id}"):
         status_index = STATUS_OPTIONS.index(case["status"]) if case["status"] in STATUS_OPTIONS else 0
         verdict_index = VERDICT_OPTIONS.index(case["verdict"]) if case["verdict"] in VERDICT_OPTIONS else 0
@@ -607,7 +746,7 @@ def rule_performance(cases: pd.DataFrame, source: str) -> None:
         scorecard["عدد التنبيهات"] = scorecard["alerts"]
         scorecard["الدقة"] = scorecard["precision"].map(lambda x: f"{x:.1%}")
         scorecard["نسبة الهجمات المكتشفة"] = scorecard["recall"].map(lambda x: f"{x:.1%}")
-        st.dataframe(scorecard[["القاعدة", "عدد التنبيهات", "الدقة", "نسبة الهجمات المكتشفة"]],
+        show_dataframe(scorecard[["القاعدة", "عدد التنبيهات", "الدقة", "نسبة الهجمات المكتشفة"]],
                      use_container_width=True, hide_index=True)
         st.caption("الدقة والاستدعاء محسوبان من بيانات الاختبار المصنّفة المرفقة بالمشروع.")
         st.image(str(ROOT / "figures" / "coverage_curve.png"), caption="تغطية الترتيب الأصلي مقابل الضوضاء المتجاوزة")
@@ -619,7 +758,7 @@ def rule_performance(cases: pd.DataFrame, source: str) -> None:
         ).reset_index().rename(columns={"detection_rule": "القاعدة"})
         grouped["الدقة"] = "بيانات التقييم غير متاحة"
         grouped["نسبة الهجمات المكتشفة"] = "بيانات التقييم غير متاحة"
-        st.dataframe(grouped, use_container_width=True, hide_index=True)
+        show_dataframe(grouped, use_container_width=True, hide_index=True)
         st.caption("لا يحتوي الملف المرفوع تصنيفًا مرجعيًا؛ لذلك تعرض الصفحة الحجم ونتائج المراجعة المسجّلة فقط.")
 
 
@@ -628,16 +767,19 @@ def main() -> None:
         st.session_state["data_source"] = "demo"
 
     st.sidebar.markdown(
-        '<div class="side-brand"><div class="shield">🛡</div><div><strong>مرصد SOC</strong><small>تحليل وفرز التنبيهات</small></div></div>',
+        '<div class="side-brand"><div class="brand-symbol">◎</div><div><strong>مرصد</strong>'
+        '<small>مركز العمليات الأمنية</small></div></div><div class="nav-label">مساحة العمل</div>',
         unsafe_allow_html=True,
     )
     section = st.sidebar.radio("التنقل", ["نظرة عامة", "التنبيهات", "التحقيقات", "أداء الكشف"], label_visibility="collapsed")
+    st.sidebar.toggle("الوضع الداكن", key="dark_mode", value=False)
+    apply_theme()
 
     source_name = "priority_queue.csv" if st.session_state["data_source"] == "demo" else "الملف المرفوع"
     last_analysis = pd.Timestamp.now(tz="Asia/Riyadh").strftime("%H:%M، %d/%m/%Y")
     st.markdown(
-        f'<div class="hero"><div><div class="eyebrow">مركز العمليات الأمنية</div><h1>مركز مراقبة التنبيهات</h1>'
-        f'<p>الملف الجاري تحليله: <span class="ltr">{source_name}</span> · آخر تحليل: {last_analysis}</p></div></div>',
+        f'<div class="hero"><div><div class="eyebrow">مساحة المراقبة والتحقيق</div><h1>نظرة على المشهد الأمني</h1>'
+        f'<p>الملف الجاري تحليله: <span class="ltr">{source_name}</span> · وقت العرض: {last_analysis}</p></div></div>',
         unsafe_allow_html=True,
     )
     header_space, upload_action = st.columns([5, 1])
